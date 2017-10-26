@@ -11,6 +11,7 @@ use Bernard\QueueFactory;
 use Bernard\QueueFactory\PersistentFactory;
 use Building\Domain\Aggregate\Building;
 use Building\Domain\Command;
+use Building\Domain\DomainEvent\CheckInAnomalyDetected;
 use Building\Domain\Repository\BuildingRepositoryInterface;
 use Building\Infrastructure\Repository\BuildingRepository;
 use Doctrine\DBAL\Connection;
@@ -22,6 +23,7 @@ use Prooph\Common\Event\ActionEvent;
 use Prooph\Common\Event\ActionEventEmitter;
 use Prooph\Common\Event\ActionEventListenerAggregate;
 use Prooph\Common\Event\ProophActionEventEmitter;
+use Prooph\Common\Messaging\DomainEvent;
 use Prooph\Common\Messaging\FQCNMessageFactory;
 use Prooph\Common\Messaging\NoOpMessageConverter;
 use Prooph\EventSourcing\EventStoreIntegration\AggregateTranslator;
@@ -217,6 +219,29 @@ return new ServiceManager([
                     ->checkOutUser($command->username());
             };
         },
+        Command\NotifySecurityOfCheckInAnomaly::class => function () : callable {
+            return function (Command\NotifySecurityOfCheckInAnomaly $command) {
+                \error_log(\sprintf(
+                    'Security issue in "%s" caused by "%s"',
+                    $command->buildingId()->toString(),
+                    $command->username()
+                ));
+            };
+        },
+
+        CheckInAnomalyDetected::class . '-listeners' => function (ContainerInterface $container) : array {
+            $commandBus = $container->get(CommandBus::class);
+
+            return [
+                function (CheckInAnomalyDetected $event) use ($commandBus) {
+                    $commandBus->dispatch(Command\NotifySecurityOfCheckInAnomaly::inBuilding(
+                        $event->buildingId(),
+                        $event->username()
+                    ));
+                },
+            ];
+        },
+
         BuildingRepositoryInterface::class => function (ContainerInterface $container) : BuildingRepositoryInterface {
             return new BuildingRepository(
                 new AggregateRepository(
